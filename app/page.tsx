@@ -11,42 +11,45 @@ type GeoEvent = {
   summary: string
 }
 
-const REGIONS = ['All', 'Americas', 'Europe', 'Middle East', 'Asia-Pacific', 'Africa']
+const REGIONS = ['All', 'Americas', 'Europe', 'Middle East', 'Asia-Pacific', 'Africa', 'Global']
 
 const REGION_COLORS: Record<string, string> = {
-  'Americas': '#3b82f6',
-  'Europe': '#8b5cf6',
+  Americas: '#3b82f6',
+  Europe: '#8b5cf6',
   'Middle East': '#f59e0b',
   'Asia-Pacific': '#10b981',
-  'Africa': '#ec4899',
-  'All': '#6366f1'
+  Africa: '#ec4899',
+  Global: '#6b7280',
+  All: '#6366f1',
 }
 
-// Map countries to regions
-function getRegion(title: string, url: string): string {
-  const text = (title + ' ' + url).toLowerCase()
-  
-  // Americas
-  if (/usa|united states|america|canada|mexico|brazil|argentina|colombia|venezuela|chile|peru/i.test(text)) 
-    return 'Americas'
-  
-  // Europe
-  if (/europe|russia|ukraine|uk|britain|france|germany|italy|spain|poland|netherlands|sweden|norway|finland|belgium|austria|switzerland|greece|portugal|ireland|denmark|czech|hungary|romania|bulgaria/i.test(text)) 
-    return 'Europe'
-  
-  // Middle East
-  if (/middle east|israel|palestine|iran|iraq|syria|saudi|yemen|lebanon|jordan|turkey|egypt|uae|qatar|kuwait|bahrain|oman/i.test(text)) 
-    return 'Middle East'
-  
-  // Asia-Pacific
-  if (/china|japan|korea|india|pakistan|vietnam|thailand|indonesia|malaysia|philippines|taiwan|singapore|australia|new zealand|bangladesh|myanmar|nepal|sri lanka/i.test(text)) 
-    return 'Asia-Pacific'
-  
-  // Africa
-  if (/africa|nigeria|ethiopia|egypt|congo|south africa|kenya|tanzania|uganda|algeria|morocco|sudan|somalia|ghana|mozambique|madagascar|cameroon|libya|tunisia/i.test(text)) 
-    return 'Africa'
-  
-  return 'All'
+const REGION_EMOJI: Record<string, string> = {
+  Americas: '🌎',
+  Europe: '🌍',
+  'Middle East': '🕌',
+  'Asia-Pacific': '🌏',
+  Africa: '🌍',
+  Global: '🌐',
+}
+
+function timeAgo(dateStr: string): string {
+  try {
+    const date = new Date(dateStr)
+    if (isNaN(date.getTime())) return ''
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const mins = Math.floor(diffMs / 60000)
+    const hours = Math.floor(mins / 60)
+    const days = Math.floor(hours / 24)
+
+    if (mins < 1) return 'Just now'
+    if (mins < 60) return `${mins}m ago`
+    if (hours < 24) return `${hours}h ago`
+    if (days < 7) return `${days}d ago`
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  } catch {
+    return ''
+  }
 }
 
 export default function Page() {
@@ -55,113 +58,58 @@ export default function Page() {
   const [error, setError] = useState<string | null>(null)
   const [selectedRegion, setSelectedRegion] = useState('All')
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+  const [sources, setSources] = useState(0)
 
   async function fetchEvents() {
     try {
       setLoading(true)
       setError(null)
-      
-      const res = await fetch(
-        'https://api.gdeltproject.org/api/v2/doc/doc?query=geopolitics%20OR%20conflict%20OR%20diplomacy%20OR%20war%20OR%20sanctions%20OR%20treaty&mode=artlist&format=json&maxrecords=50&sort=datedesc',
-        { cache: 'no-store' }
-      )
-      
-      if (!res.ok) throw new Error('Failed to fetch events')
-      
-      const data = await res.json()
-      
-      if (!data.articles || data.articles.length === 0) {
-        setEvents([])
-        setLoading(false)
-        return
-      }
 
-      const parsedEvents: GeoEvent[] = data.articles.map((article: any, idx: number) => {
-        const title = article.title || 'Untitled'
-        const url = article.url || ''
-        const source = article.domain || new URL(url).hostname.replace('www.', '')
-        const date = article.seendate || new Date().toISOString()
-        const region = getRegion(title, url)
-        
-        return {
-          id: `${article.url}-${idx}`,
-          title,
-          url,
-          source,
-          date: formatDate(date),
-          region,
-          summary: article.socialimage || ''
-        }
-      })
-      
-      setEvents(parsedEvents)
+      const res = await fetch('/api/events')
+      if (!res.ok) throw new Error('Failed to fetch')
+
+      const data = await res.json()
+      setEvents(data.events || [])
+      setSources(data.sources || 0)
       setLastUpdate(new Date())
-      setLoading(false)
-    } catch (err) {
-      console.error('Error fetching events:', err)
+    } catch {
       setError('Failed to load events. Please try again.')
+    } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
     fetchEvents()
-    
-    // Auto-refresh every 5 minutes
     const interval = setInterval(fetchEvents, 5 * 60 * 1000)
     return () => clearInterval(interval)
   }, [])
 
-  function formatDate(dateStr: string): string {
-    try {
-      // GDELT format: YYYYMMDDHHMMSS
-      if (dateStr.length === 14) {
-        const year = dateStr.slice(0, 4)
-        const month = dateStr.slice(4, 6)
-        const day = dateStr.slice(6, 8)
-        const hour = dateStr.slice(8, 10)
-        const minute = dateStr.slice(10, 12)
-        const date = new Date(`${year}-${month}-${day}T${hour}:${minute}:00Z`)
-        
-        const now = new Date()
-        const diffMs = now.getTime() - date.getTime()
-        const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
-        const diffDays = Math.floor(diffHours / 24)
-        
-        if (diffHours < 1) return 'Just now'
-        if (diffHours < 24) return `${diffHours}h ago`
-        if (diffDays < 7) return `${diffDays}d ago`
-        
-        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-      }
-      
-      return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    } catch {
-      return 'Unknown date'
-    }
-  }
+  const filteredEvents =
+    selectedRegion === 'All' ? events : events.filter(e => e.region === selectedRegion)
 
-  const filteredEvents = selectedRegion === 'All' 
-    ? events 
-    : events.filter(e => e.region === selectedRegion)
+  const regionCounts = REGIONS.reduce(
+    (acc, region) => {
+      acc[region] = region === 'All' ? events.length : events.filter(e => e.region === region).length
+      return acc
+    },
+    {} as Record<string, number>,
+  )
 
-  const regionCounts = REGIONS.reduce((acc, region) => {
-    acc[region] = region === 'All' 
-      ? events.length 
-      : events.filter(e => e.region === region).length
-    return acc
-  }, {} as Record<string, number>)
+  // Hide regions with 0 events (except All)
+  const visibleRegions = REGIONS.filter(r => r === 'All' || regionCounts[r] > 0)
 
   return (
     <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
             <div>
-              <h1 className="text-3xl md:text-4xl font-bold mb-2">🌍 Geopolitical Events</h1>
+              <h1 className="text-3xl md:text-4xl font-bold mb-1">🌍 Geopolitical Events</h1>
               <p className="text-sm text-gray-500">
                 Real-time tracking of global geopolitical developments
+                {sources > 0 && <span className="ml-1">• {sources} sources</span>}
               </p>
             </div>
             <div className="flex items-center gap-4">
@@ -173,7 +121,7 @@ export default function Page() {
               <button
                 onClick={fetchEvents}
                 disabled={loading}
-                className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:cursor-not-allowed px-4 py-2 rounded-lg text-sm font-medium transition"
+                className="bg-[#1a1a28] hover:bg-[#222236] disabled:opacity-50 border border-[#2a2a3a] px-4 py-2 rounded-lg text-sm font-medium transition"
               >
                 {loading ? '⟳ Loading...' : '↻ Refresh'}
               </button>
@@ -182,52 +130,50 @@ export default function Page() {
 
           {/* Region Filters */}
           <div className="flex flex-wrap gap-2">
-            {REGIONS.map(region => (
+            {visibleRegions.map(region => (
               <button
                 key={region}
                 onClick={() => setSelectedRegion(region)}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
                   selectedRegion === region
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-[#1a1a24] text-gray-400 hover:bg-[#222230] hover:text-white border border-[#2a2a3a]'
+                    ? 'text-white shadow-lg'
+                    : 'bg-[#14141e] text-gray-400 hover:bg-[#1a1a28] hover:text-white border border-[#222]'
                 }`}
                 style={
-                  selectedRegion === region 
-                    ? { background: REGION_COLORS[region] } 
+                  selectedRegion === region
+                    ? { background: REGION_COLORS[region] }
                     : {}
                 }
               >
+                {REGION_EMOJI[region] && <span className="mr-1">{REGION_EMOJI[region]}</span>}
                 {region}
-                <span className="ml-2 text-xs opacity-70">
-                  ({regionCounts[region] || 0})
-                </span>
+                <span className="ml-2 text-xs opacity-70">({regionCounts[region] || 0})</span>
               </button>
             ))}
           </div>
         </div>
 
-        {/* Error State */}
+        {/* Error */}
         {error && (
-          <div className="bg-red-900/20 border border-red-800/40 rounded-xl p-4 mb-6 text-red-400">
+          <div className="bg-red-900/20 border border-red-800/40 rounded-xl p-4 mb-6 text-red-400 text-sm">
             {error}
           </div>
         )}
 
-        {/* Loading State */}
+        {/* Loading */}
         {loading && events.length === 0 && (
           <div className="text-center py-20">
-            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500 mb-4"></div>
-            <p className="text-gray-500">Loading geopolitical events...</p>
+            <div className="inline-block animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-500 mb-4" />
+            <p className="text-gray-500">Loading events…</p>
           </div>
+        )}
+
+        {/* Empty */}
+        {!loading && filteredEvents.length === 0 && !error && (
+          <div className="text-center py-20 text-gray-500">No events found for {selectedRegion}</div>
         )}
 
         {/* Events Grid */}
-        {!loading && filteredEvents.length === 0 && (
-          <div className="text-center py-20">
-            <p className="text-gray-500 text-lg">No events found for {selectedRegion}</p>
-          </div>
-        )}
-
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredEvents.map(event => (
             <a
@@ -237,38 +183,45 @@ export default function Page() {
               rel="noopener noreferrer"
               className="group bg-[#14141e] hover:bg-[#1a1a28] rounded-xl border border-[#222] hover:border-[#333] p-5 transition-all duration-200 flex flex-col"
             >
-              {/* Region Badge */}
+              {/* Top row: region + time */}
               <div className="flex items-center justify-between mb-3">
-                <span 
-                  className="region-badge"
-                  style={{ 
-                    background: `${REGION_COLORS[event.region]}20`,
-                    color: REGION_COLORS[event.region],
-                    border: `1px solid ${REGION_COLORS[event.region]}40`
+                <span
+                  className="text-[11px] font-semibold px-2.5 py-1 rounded-full"
+                  style={{
+                    background: `${REGION_COLORS[event.region] || '#555'}15`,
+                    color: REGION_COLORS[event.region] || '#888',
+                    border: `1px solid ${REGION_COLORS[event.region] || '#555'}30`,
                   }}
                 >
                   {event.region}
                 </span>
-                <span className="text-xs text-gray-600">{event.date}</span>
+                <span className="text-[11px] text-gray-600">{timeAgo(event.date)}</span>
               </div>
 
               {/* Title */}
-              <h3 className="text-base font-semibold mb-2 leading-snug group-hover:text-indigo-400 transition line-clamp-3">
+              <h3 className="text-[15px] font-semibold mb-2 leading-snug group-hover:text-indigo-400 transition line-clamp-3">
                 {event.title}
               </h3>
 
-              {/* Source */}
-              <div className="mt-auto pt-3 flex items-center justify-between text-xs text-gray-500">
+              {/* Summary */}
+              {event.summary && (
+                <p className="text-xs text-gray-500 mb-3 leading-relaxed line-clamp-2">
+                  {event.summary}
+                </p>
+              )}
+
+              {/* Footer: source */}
+              <div className="mt-auto pt-3 border-t border-[#1e1e2e] flex items-center justify-between text-xs text-gray-600">
                 <span className="truncate">{event.source}</span>
-                <span className="group-hover:text-indigo-400 transition ml-2">→</span>
+                <span className="group-hover:text-indigo-400 transition ml-2 text-sm">→</span>
               </div>
             </a>
           ))}
         </div>
 
         {/* Footer */}
-        <div className="mt-12 text-center text-xs text-gray-600 border-t border-[#222] pt-6">
-          <p>Data sourced from GDELT Project • Auto-refreshes every 5 minutes</p>
+        <div className="mt-12 text-center text-xs text-gray-600 border-t border-[#1a1a24] pt-6">
+          Data sourced from BBC, Al Jazeera, NYT, Sky News, The Guardian • Auto-refreshes every 5 minutes
         </div>
       </div>
     </div>
